@@ -1,4 +1,4 @@
-# Soniox Caption OBS Plugin - Development History
+# Soniox Captions OBS Plugin - Development History
 
 점진적 개발 기록. C++ 비경험자가 OBS 플러그인을 처음부터 만들어가는 과정.
 
@@ -55,7 +55,7 @@ Plugin Manager에서 `soniox-caption-obs` 체크됨 확인 ✓
 
 ## Step 2: OBS Source 등록 (화면에 텍스트 표시)
 
-**목표**: Sources > + 에서 "Soniox Caption" 선택 가능, 화면에 고정 텍스트 표시
+**목표**: Sources > + 에서 "Soniox Captions" 선택 가능, 화면에 고정 텍스트 표시
 
 ### 무엇을 했나
 1. `plugin-main.c` → `plugin-main.cpp`로 전환 (나중에 C++ 필요하므로 미리 전환)
@@ -81,7 +81,7 @@ obs_source_info 구조체 정의
 ```cpp
 // 직접 폰트 렌더링하지 않고, OBS의 텍스트 소스를 내부적으로 생성
 obs_data_t *text_settings = obs_data_create();
-obs_data_set_string(text_settings, "text", "Soniox Caption Ready!");
+obs_data_set_string(text_settings, "text", "Soniox Captions Ready!");
 obs_data_set_int(text_settings, "font_size", 48);
 
 // obs_source_create_private = 사용자에게 보이지 않는 내부 소스
@@ -102,7 +102,7 @@ data->text_source = obs_source_create_private(
 - **.c → .cpp 전환 후 빌드 실패**: Xcode가 이전 .c 파일을 캐시. `build_macos/` 삭제 후 re-configure로 해결
 
 ### 결과
-OBS 화면에 "Soniox Caption Ready!" 텍스트 표시됨 ✓
+OBS 화면에 "Soniox Captions Ready!" 텍스트 표시됨 ✓
 
 ---
 

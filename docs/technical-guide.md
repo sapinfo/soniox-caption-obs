@@ -1,4 +1,4 @@
-# Soniox Caption OBS Plugin - Technical Guide
+# Soniox Captions OBS Plugin - Technical Guide
 
 ## Project Overview
 
@@ -88,7 +88,7 @@ cmake --build --preset ubuntu-x86_64
 │ OBS Studio                                      │
 │                                                 │
 │  ┌──────────────────┐   ┌────────────────────┐  │
-│  │ Audio Source      │   │ Soniox Caption     │  │
+│  │ Audio Source      │   │ Soniox Captions     │  │
 │  │ (Mic/Aux)        │   │ Source              │  │
 │  │                  │   │                    │  │
 │  │ float32 48kHz ───┼──►│ ┌────────────────┐ │  │

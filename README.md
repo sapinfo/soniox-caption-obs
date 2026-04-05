@@ -1,4 +1,4 @@
-# Soniox Caption for OBS
+# Soniox Captions for OBS
 
 Real-time speech-to-text captions for OBS Studio using the [Soniox](https://soniox.com) API.
 
@@ -33,7 +33,7 @@ rm -rf ~/Library/Application\ Support/obs-studio/plugins/soniox-caption-obs.plug
 
 ## Usage
 
-1. In OBS, add a new Source: **Soniox Caption**
+1. In OBS, add a new Source: **Soniox Captions**
 2. Open Properties:
    - Enter your **Soniox API Key**
    - Select **Audio Source** (e.g., Mic/Aux)

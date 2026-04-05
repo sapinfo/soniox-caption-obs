@@ -1,5 +1,5 @@
 /*
- * Soniox Caption for OBS
+ * Soniox Captions for OBS
  * Real-time speech-to-text captions using Soniox API
  *
  * Step 5+6 v2: 오디오 캡처 → Soniox 전송 → 실시간 자막 표시
@@ -233,7 +233,7 @@ static void stop_captioning(soniox_caption_data *data)
 	}
 
 	data->stopping = false;
-	update_text_display(data, "Soniox Caption Ready!");
+	update_text_display(data, "Soniox Captions Ready!");
 	obs_log(LOG_INFO, "Captioning stopped");
 }
 
@@ -419,7 +419,7 @@ static void test_connection(soniox_caption_data *data)
 
 static const char *soniox_caption_get_name(void *)
 {
-	return "Soniox Caption";
+	return "Soniox Captions";
 }
 
 static void *soniox_caption_create(obs_data_t *settings, obs_source_t *source)
@@ -429,7 +429,7 @@ static void *soniox_caption_create(obs_data_t *settings, obs_source_t *source)
 	data->font_size = (int)obs_data_get_int(settings, "font_size");
 
 	obs_data_t *ts = obs_data_create();
-	obs_data_set_string(ts, "text", "Soniox Caption Ready!");
+	obs_data_set_string(ts, "text", "Soniox Captions Ready!");
 	obs_data_set_int(ts, "font_size", data->font_size);
 #ifdef _WIN32
 	data->text_source = obs_source_create_private("text_gdiplus", "soniox_text", ts);
@@ -464,7 +464,7 @@ static void soniox_caption_update(void *private_data, obs_data_t *settings)
 
 	if (!data->captioning && !data->connected) {
 		if (!data->api_key.empty())
-			update_text_display(data, "Soniox Caption Ready!");
+			update_text_display(data, "Soniox Captions Ready!");
 		else
 			update_text_display(data, "[Set API Key in Properties]");
 	}
@@ -485,7 +485,7 @@ static bool on_test_clicked(obs_properties_t *, obs_property_t *, void *private_
 		data->websocket.reset();
 		data->connected = false;
 		data->stopping = false;
-		update_text_display(data, "Soniox Caption Ready!");
+		update_text_display(data, "Soniox Captions Ready!");
 	} else {
 		test_connection(data);
 	}

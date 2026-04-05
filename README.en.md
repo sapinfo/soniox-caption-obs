@@ -2,7 +2,8 @@
 
 **English** | [한국어](README.md)
 
-Real-time speech-to-text captions for OBS Studio using the [Soniox](https://soniox.com) API.
+**Real-time speech-to-text captions + translation** for OBS Studio using the [Soniox](https://soniox.com) API.
+Speak in any language and see both the original captions and translated subtitles displayed simultaneously.
 
 ---
 
@@ -25,8 +26,8 @@ Real-time speech-to-text captions for OBS Studio using the [Soniox](https://soni
 
 ## Features
 
-- Real-time speech-to-text (Soniox stt-rt-v4 model)
-- Built-in translation (Korean, English, Japanese, Chinese, Spanish, French, German)
+- **Real-time speech-to-text** (Soniox stt-rt-v4 model)
+- **Real-time translation** — translated subtitles appear alongside original captions instantly (KO↔EN, KO↔JA, KO↔ZH, and more — 7 languages)
 - Hotkey support (start/stop without opening Properties)
 - Auto-reconnect on disconnect
 - CJK font support

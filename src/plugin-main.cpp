@@ -27,6 +27,9 @@ struct soniox_caption_data {
 	obs_source_t *source;
 	obs_source_t *text_source;
 
+	// 핫키
+	obs_hotkey_id hotkey_id{OBS_INVALID_HOTKEY_ID};
+
 	// WebSocket
 	std::unique_ptr<ix::WebSocket> websocket;
 	std::atomic<bool> connected{false};
@@ -268,7 +271,11 @@ static void start_captioning(soniox_caption_data *data)
 	// 1. WebSocket 먼저 설정
 	data->websocket = std::make_unique<ix::WebSocket>();
 	data->websocket->setUrl("wss://stt-rt.soniox.com/transcribe-websocket");
-	data->websocket->disableAutomaticReconnection();
+
+	// 자동 재연결: 끊어지면 3초 후 재시도
+	data->websocket->enableAutomaticReconnection();
+	data->websocket->setMinWaitBetweenReconnectionRetries(3000);
+	data->websocket->setMaxWaitBetweenReconnectionRetries(30000);
 
 	std::string key = data->api_key;
 	std::string lang = data->language;
@@ -417,6 +424,29 @@ static void test_connection(soniox_caption_data *data)
 
 // ─── 콜백 함수들 ───
 
+// ─── 핫키: Start/Stop Caption 토글 ───
+static void hotkey_toggle_caption(void *private_data, obs_hotkey_id, obs_hotkey_t *, bool pressed)
+{
+	if (!pressed)
+		return;
+	auto *data = static_cast<soniox_caption_data *>(private_data);
+
+	obs_data_t *settings = obs_source_get_settings(data->source);
+	data->api_key = obs_data_get_string(settings, "api_key");
+	data->language = obs_data_get_string(settings, "language");
+	data->audio_source_name = obs_data_get_string(settings, "audio_source");
+	data->translate = obs_data_get_bool(settings, "translate");
+	data->target_lang = obs_data_get_string(settings, "target_lang");
+	obs_data_release(settings);
+
+	if (data->captioning)
+		stop_captioning(data);
+	else
+		start_captioning(data);
+}
+
+// ─── 콜백 함수들 ───
+
 static const char *soniox_caption_get_name(void *)
 {
 	return "Soniox Captions";
@@ -438,6 +468,11 @@ static void *soniox_caption_create(obs_data_t *settings, obs_source_t *source)
 #endif
 	obs_data_release(ts);
 
+	// 핫키 등록 — OBS Settings > Hotkeys에서 키 할당 가능
+	data->hotkey_id = obs_hotkey_register_source(source, "soniox_toggle_caption",
+						     "Toggle Soniox Captions",
+						     hotkey_toggle_caption, data);
+
 	obs_log(LOG_INFO, "caption source created");
 	return data;
 }
@@ -446,6 +481,8 @@ static void soniox_caption_destroy(void *private_data)
 {
 	auto *data = static_cast<soniox_caption_data *>(private_data);
 	stop_captioning(data);
+	if (data->hotkey_id != OBS_INVALID_HOTKEY_ID)
+		obs_hotkey_unregister(data->hotkey_id);
 	if (data->text_source)
 		obs_source_release(data->text_source);
 	delete data;

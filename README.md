@@ -17,6 +17,9 @@ Soniox API를 사용한 OBS Studio 실시간 자막 플러그인입니다.
 - **실시간 번역**: 3,600개 이상 언어 조합의 스트리밍 번역
 - **고급 엔드포인팅**: 단순 침묵이 아닌 어조와 의미를 분석하여 발화 완료 시점을 정확히 판단
 
+![Daily.co STT Benchmark - Soniox가 속도와 정확도 모두 최상위권](docs/images/daily-co-benchmark.png)
+*출처: [Daily.co (Pipecat) STT 벤치마크](https://daily.co/blog/benchmarking-stt-for-voice-agents)*
+
 > *"대부분의 업계 리더들은 영어 우선(English-first)입니다. 비영어 오디오에서는 정확도가 급락하고 지연시간이 급증합니다. Soniox는 어떤 언어에서든 동일한 최고 수준의 정확도와 속도를 제공하는 유일한 음성 API입니다."*
 > — [Soniox Blog](https://soniox.com/blog/soniox-named-best-in-class-for-voice-agents)
 

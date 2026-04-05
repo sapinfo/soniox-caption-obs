@@ -17,6 +17,9 @@ Real-time speech-to-text captions for OBS Studio using the [Soniox](https://soni
 - **Real-time translation**: Streaming translation for 3,600+ language pairs
 - **Advanced endpointing**: Uses tone and meaning — not just silence — to detect when a speaker is done
 
+![Daily.co STT Benchmark - Soniox leads in both speed and accuracy](docs/images/daily-co-benchmark.png)
+*Source: [Daily.co (Pipecat) STT Benchmark](https://daily.co/blog/benchmarking-stt-for-voice-agents)*
+
 > *"Most 'industry leaders' are English-first. Their accuracy drops off a cliff the moment you move into other languages. Soniox is the only speech API provider you can use today to build voice agents for all 8 billion people on Earth."*
 > — [Soniox Blog](https://soniox.com/blog/soniox-named-best-in-class-for-voice-agents)
 

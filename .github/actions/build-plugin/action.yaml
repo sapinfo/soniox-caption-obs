@@ -43,6 +43,11 @@ runs:
 
         if [[ '${{ inputs.codesign }}' == 'true' ]] build_args+=(--codesign)
 
+        # Extract arch from target (e.g., macos-arm64 → arm64, macos-x86_64 → x86_64)
+        local arch='${{ inputs.target }}'
+        arch=${arch#macos-}
+        if [[ -n ${arch} ]] build_args+=(--arch ${arch})
+
         .github/scripts/build-macos ${build_args}
 
     - name: Install Dependencies 🛍️

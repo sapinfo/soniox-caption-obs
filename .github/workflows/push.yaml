@@ -2,22 +2,11 @@ name: Push
 run-name: ${{ github.ref_name }} push run 🚀
 on:
   push:
-    branches:
-      - master
-      - main
-      - 'release/**'
     tags:
       - '*'
 permissions:
   contents: write
 jobs:
-  check-format:
-    name: Check Formatting 🔍
-    if: github.ref_name == 'master' || github.ref_name == 'main'
-    uses: ./.github/workflows/check-format.yaml
-    permissions:
-      contents: read
-
   build-project:
     name: Build Project 🧱
     uses: ./.github/workflows/build-project.yaml
@@ -74,6 +63,7 @@ jobs:
           variants=(
             'windows-x64;zip|exe'
             'macos-arm64;tar.xz|pkg'
+            'macos-x86_64;tar.xz|pkg'
             'ubuntu-24.04-x86_64;tar.xz|deb|ddeb'
             'sources;tar.xz'
           )

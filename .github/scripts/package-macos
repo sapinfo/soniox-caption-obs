@@ -59,6 +59,7 @@ package() {
   local -i codesign=0
   local -i notarize=0
   local -i package=0
+  local target_arch='arm64'
 
   local -a args
   while (( # )) {
@@ -83,6 +84,7 @@ package() {
       -s|--codesign) typeset -g codesign=1; shift ;;
       -n|--notarize) typeset -g notarize=1; typeset -g codesign=1; shift ;;
       -p|--package) typeset -g package=1; shift ;;
+      -a|--arch) target_arch=${2}; shift 2 ;;
       --debug) debug=1; shift ;;
       *) log_error "Unknown option: %B${1}%b"; exit 2 ;;
     }
@@ -97,7 +99,7 @@ package() {
   read -r product_name product_version <<< \
     "$(jq -r '. | {name, version} | join(" ")' ${buildspec_file})"
 
-  local output_name="${product_name}-${product_version}-${host_os}-universal"
+  local output_name="${product_name}-${product_version}-${host_os}-${target_arch}"
 
   if [[ ! -d ${project_root}/release/${config}/${product_name}.plugin ]] {
     log_error 'No release artifact found. Run the build script or the CMake install procedure first.'

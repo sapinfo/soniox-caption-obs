@@ -41,6 +41,8 @@ git tag x.x.x && git push origin x.x.x
 - Audio: OBS float32 48kHz -> int16 16kHz downsampled -> WebSocket binary to Soniox
 - x86_64 macOS CI: Intel Homebrew OpenSSL at `/usr/local/opt/openssl@3`
 - `CMakeLists.txt` guards `OPENSSL_ROOT_DIR` with `NOT DEFINED CACHE{}` to prevent preset override
+- Font: `obs_properties_add_font()` for system font dialog (face/style/size in one `obs_data_t` object)
+- Text style properties passed through to internal text source (`color1/2`, `outline`, `drop_shadow`, `custom_width`, `word_wrap` for ft2; `color`, `extents`, `outline` for gdiplus)
 
 ## Important Conventions
 - Version in `buildspec.json` (single source of truth)

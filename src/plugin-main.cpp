@@ -50,10 +50,20 @@ struct soniox_caption_data {
 	// 설정
 	int font_size{48};
 	std::string font_face{"Apple SD Gothic Neo"};
+	std::string font_style{"Regular"};
+	int font_flags{0};
 	std::string api_key;
 	std::string language{"ko"};
 	bool translate{false};
 	std::string target_lang{"en"};
+
+	// 텍스트 스타일
+	uint32_t color1{0xFFFFFFFF}; // ABGR (OBS 내부 포맷)
+	uint32_t color2{0xFFFFFFFF};
+	bool outline{false};
+	bool drop_shadow{false};
+	int custom_width{0};
+	bool word_wrap{false};
 };
 
 // ─── 텍스트 표시 업데이트 ───
@@ -65,12 +75,39 @@ static void update_text_display(soniox_caption_data *data, const char *text)
 	obs_data_t *font = obs_data_create();
 	obs_data_set_string(font, "face", data->font_face.c_str());
 	obs_data_set_int(font, "size", data->font_size);
-	obs_data_set_string(font, "style", "Regular");
-	obs_data_set_int(font, "flags", 0);
+	obs_data_set_string(font, "style", data->font_style.c_str());
+	obs_data_set_int(font, "flags", data->font_flags);
 
 	obs_data_t *s = obs_data_create();
 	obs_data_set_string(s, "text", text);
 	obs_data_set_obj(s, "font", font);
+
+#ifdef _WIN32
+	// text_gdiplus 속성
+	obs_data_set_int(s, "color", data->color1);
+	obs_data_set_int(s, "opacity", 100);
+	obs_data_set_bool(s, "outline", data->outline);
+	obs_data_set_int(s, "outline_size", 4);
+	obs_data_set_int(s, "outline_color", 0x000000);
+	obs_data_set_int(s, "outline_opacity", 100);
+	if (data->custom_width > 0) {
+		obs_data_set_bool(s, "extents", true);
+		obs_data_set_int(s, "extents_cx", data->custom_width);
+		obs_data_set_int(s, "extents_cy", 0);
+		obs_data_set_bool(s, "extents_wrap", data->word_wrap);
+	} else {
+		obs_data_set_bool(s, "extents", false);
+	}
+#else
+	// text_ft2_source_v2 속성
+	obs_data_set_int(s, "color1", data->color1);
+	obs_data_set_int(s, "color2", data->color2);
+	obs_data_set_bool(s, "outline", data->outline);
+	obs_data_set_bool(s, "drop_shadow", data->drop_shadow);
+	obs_data_set_int(s, "custom_width", data->custom_width);
+	obs_data_set_bool(s, "word_wrap", data->word_wrap);
+#endif
+
 	obs_source_update(data->text_source, s);
 
 	obs_data_release(font);
@@ -456,11 +493,19 @@ static void *soniox_caption_create(obs_data_t *settings, obs_source_t *source)
 {
 	auto *data = new soniox_caption_data();
 	data->source = source;
-	data->font_size = (int)obs_data_get_int(settings, "font_size");
+
+	// 폰트 설정 읽기
+	obs_data_t *font_obj = obs_data_get_obj(settings, "font");
+	if (font_obj) {
+		data->font_face = obs_data_get_string(font_obj, "face");
+		data->font_style = obs_data_get_string(font_obj, "style");
+		data->font_size = (int)obs_data_get_int(font_obj, "size");
+		data->font_flags = (int)obs_data_get_int(font_obj, "flags");
+		obs_data_release(font_obj);
+	}
 
 	obs_data_t *ts = obs_data_create();
 	obs_data_set_string(ts, "text", "Soniox Captions Ready!");
-	obs_data_set_int(ts, "font_size", data->font_size);
 #ifdef _WIN32
 	data->text_source = obs_source_create_private("text_gdiplus", "soniox_text", ts);
 #else
@@ -491,13 +536,30 @@ static void soniox_caption_destroy(void *private_data)
 static void soniox_caption_update(void *private_data, obs_data_t *settings)
 {
 	auto *data = static_cast<soniox_caption_data *>(private_data);
-	data->font_size = (int)obs_data_get_int(settings, "font_size");
-	data->font_face = obs_data_get_string(settings, "font_face");
+
+	// 폰트 (obs_data_t 오브젝트)
+	obs_data_t *font_obj = obs_data_get_obj(settings, "font");
+	if (font_obj) {
+		data->font_face = obs_data_get_string(font_obj, "face");
+		data->font_style = obs_data_get_string(font_obj, "style");
+		data->font_size = (int)obs_data_get_int(font_obj, "size");
+		data->font_flags = (int)obs_data_get_int(font_obj, "flags");
+		obs_data_release(font_obj);
+	}
+
 	data->api_key = obs_data_get_string(settings, "api_key");
 	data->language = obs_data_get_string(settings, "language");
 	data->audio_source_name = obs_data_get_string(settings, "audio_source");
 	data->translate = obs_data_get_bool(settings, "translate");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
+
+	// 텍스트 스타일
+	data->color1 = (uint32_t)obs_data_get_int(settings, "color1");
+	data->color2 = (uint32_t)obs_data_get_int(settings, "color2");
+	data->outline = obs_data_get_bool(settings, "outline");
+	data->drop_shadow = obs_data_get_bool(settings, "drop_shadow");
+	data->custom_width = (int)obs_data_get_int(settings, "custom_width");
+	data->word_wrap = obs_data_get_bool(settings, "word_wrap");
 
 	if (!data->captioning && !data->connected) {
 		if (!data->api_key.empty())
@@ -606,24 +668,22 @@ static obs_properties_t *soniox_caption_get_properties(void *private_data)
 	obs_property_list_add_string(target, "French", "fr");
 	obs_property_list_add_string(target, "German", "de");
 
-	// 폰트 선택
-	obs_property_t *font_list =
-		obs_properties_add_list(props, "font_face", "Font", OBS_COMBO_TYPE_LIST,
-					OBS_COMBO_FORMAT_STRING);
-#ifdef _WIN32
-	obs_property_list_add_string(font_list, "Malgun Gothic", "Malgun Gothic");
-	obs_property_list_add_string(font_list, "Yu Gothic", "Yu Gothic");
-#else
-	obs_property_list_add_string(font_list, "Apple SD Gothic Neo", "Apple SD Gothic Neo");
-	obs_property_list_add_string(font_list, "Hiragino Sans", "Hiragino Sans");
-#endif
-	obs_property_list_add_string(font_list, "Noto Sans CJK KR", "Noto Sans CJK KR");
-	obs_property_list_add_string(font_list, "Noto Sans CJK JP", "Noto Sans CJK JP");
-	obs_property_list_add_string(font_list, "Arial", "Arial");
-	obs_property_list_add_string(font_list, "Helvetica", "Helvetica");
+	// ─── 텍스트 스타일 ───
 
-	// 폰트 크기
-	obs_properties_add_int_slider(props, "font_size", "Font Size", 12, 120, 2);
+	// 폰트 선택 (시스템 폰트 다이얼로그)
+	obs_properties_add_font(props, "font", "Font");
+
+	// 텍스트 색상
+	obs_properties_add_color(props, "color1", "Text Color");
+	obs_properties_add_color(props, "color2", "Text Color 2 (Gradient)");
+
+	// 텍스트 효과
+	obs_properties_add_bool(props, "outline", "Outline");
+	obs_properties_add_bool(props, "drop_shadow", "Drop Shadow");
+
+	// 텍스트 레이아웃
+	obs_properties_add_int(props, "custom_width", "Custom Text Width (0=auto)", 0, 4096, 1);
+	obs_properties_add_bool(props, "word_wrap", "Word Wrap");
 
 	// 버튼들
 	obs_properties_add_button(props, "test_connection", "Test Connection", on_test_clicked);
@@ -641,12 +701,27 @@ static void soniox_caption_get_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "audio_source", "");
 	obs_data_set_default_bool(settings, "translate", false);
 	obs_data_set_default_string(settings, "target_lang", "en");
+
+	// 폰트 기본값 (obs_data_t 오브젝트)
+	obs_data_t *font_obj = obs_data_create();
 #ifdef _WIN32
-	obs_data_set_default_string(settings, "font_face", "Malgun Gothic");
+	obs_data_set_default_string(font_obj, "face", "Malgun Gothic");
 #else
-	obs_data_set_default_string(settings, "font_face", "Apple SD Gothic Neo");
+	obs_data_set_default_string(font_obj, "face", "Apple SD Gothic Neo");
 #endif
-	obs_data_set_default_int(settings, "font_size", 48);
+	obs_data_set_default_string(font_obj, "style", "Regular");
+	obs_data_set_default_int(font_obj, "size", 48);
+	obs_data_set_default_int(font_obj, "flags", 0);
+	obs_data_set_default_obj(settings, "font", font_obj);
+	obs_data_release(font_obj);
+
+	// 텍스트 스타일 기본값
+	obs_data_set_default_int(settings, "color1", 0xFFFFFFFF);
+	obs_data_set_default_int(settings, "color2", 0xFFFFFFFF);
+	obs_data_set_default_bool(settings, "outline", false);
+	obs_data_set_default_bool(settings, "drop_shadow", false);
+	obs_data_set_default_int(settings, "custom_width", 0);
+	obs_data_set_default_bool(settings, "word_wrap", false);
 }
 
 static uint32_t soniox_caption_get_width(void *private_data)

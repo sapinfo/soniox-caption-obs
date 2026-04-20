@@ -368,6 +368,10 @@ static void start_captioning(soniox_caption_data *data)
 			obs_log(LOG_INFO, "Soniox WebSocket connected");
 			data->connected = true;
 
+			auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count();
+			std::string session_id = "obs_" + std::to_string(now_ms);
+
 			json config;
 			config["api_key"] = key;
 			config["model"] = "stt-rt-v4";
@@ -378,6 +382,7 @@ static void start_captioning(soniox_caption_data *data)
 			config["enable_language_identification"] = true;
 			config["enable_endpoint_detection"] = true;
 			config["max_endpoint_delay_ms"] = data->max_endpoint_delay_ms;
+			config["client_reference_id"] = session_id;
 
 			// 번역 모드 또는 both 모드일 때 Soniox 내장 번역 추가
 			if (data->display_mode != "original" && !data->target_lang.empty()) {

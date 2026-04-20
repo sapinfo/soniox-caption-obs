@@ -48,6 +48,7 @@ struct soniox_caption_data {
 	std::string final_trans_buffer; // 번역 확정 텍스트
 	std::string partial_text;
 	int turn_count{0};
+	int last_speaker{-1}; // 화자 전환 감지용 (발화 경계에서 -1로 리셋)
 
 	// 설정
 	int font_size{48};
@@ -60,6 +61,7 @@ struct soniox_caption_data {
 	std::string display_mode{"original"}; // "original", "translation", or "both"
 	std::string target_lang{"en"};
 	int max_endpoint_delay_ms{500}; // Soniox: 500~3000 (default 500 = faster finalize)
+	bool enable_diarization{false};
 
 	// 번역 committed protection (확정 텍스트 1.5초 유지)
 	std::chrono::steady_clock::time_point committed_protect_until;
@@ -225,6 +227,7 @@ static void handle_soniox_message(soniox_caption_data *data, const std::string &
 				data->final_buffer.clear();
 				data->final_trans_buffer.clear();
 				data->partial_text.clear();
+				data->last_speaker = -1; // 발화 경계에서 화자 리셋
 				continue;
 			}
 
@@ -233,6 +236,17 @@ static void handle_soniox_message(soniox_caption_data *data, const std::string &
 				token.value("translation_status", "") == "translation";
 			bool is_final = token.value("is_final", false);
 
+			// 원문 토큰에 한해 화자 전환 시 "S{N}: " prefix 추가
+			std::string prefix;
+			if (data->enable_diarization && !is_trans &&
+			    token.contains("speaker") && !token["speaker"].is_null()) {
+				int spk = token.value("speaker", -1);
+				if (spk >= 0 && spk != data->last_speaker) {
+					prefix = "S" + std::to_string(spk) + ": ";
+					data->last_speaker = spk;
+				}
+			}
+
 			if (is_trans) {
 				if (is_final)
 					new_final_trans += text;
@@ -240,9 +254,9 @@ static void handle_soniox_message(soniox_caption_data *data, const std::string &
 					non_final_trans += text;
 			} else {
 				if (is_final)
-					new_final += text;
+					new_final += prefix + text;
 				else
-					non_final += text;
+					non_final += prefix + text;
 			}
 		}
 
@@ -389,6 +403,10 @@ static void start_captioning(soniox_caption_data *data)
 			config["max_endpoint_delay_ms"] = data->max_endpoint_delay_ms;
 			config["client_reference_id"] = session_id;
 
+			if (data->enable_diarization) {
+				config["enable_speaker_diarization"] = true;
+			}
+
 			// 번역 모드 또는 both 모드일 때 Soniox 내장 번역 추가
 			if (data->display_mode != "original" && !data->target_lang.empty()) {
 				config["translation"] = {
@@ -527,6 +545,7 @@ static void hotkey_toggle_caption(void *private_data, obs_hotkey_id, obs_hotkey_
 	data->display_mode = obs_data_get_string(settings, "display_mode");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
 	data->max_endpoint_delay_ms = (int)obs_data_get_int(settings, "max_endpoint_delay_ms");
+	data->enable_diarization = obs_data_get_bool(settings, "enable_diarization");
 	obs_data_release(settings);
 
 	if (data->captioning)
@@ -619,6 +638,7 @@ static void soniox_caption_update(void *private_data, obs_data_t *settings)
 	data->display_mode = obs_data_get_string(settings, "display_mode");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
 	data->max_endpoint_delay_ms = (int)obs_data_get_int(settings, "max_endpoint_delay_ms");
+	data->enable_diarization = obs_data_get_bool(settings, "enable_diarization");
 
 	// 텍스트 스타일
 	data->color1 = (uint32_t)obs_data_get_int(settings, "color1");
@@ -670,6 +690,7 @@ static bool on_start_stop_clicked(obs_properties_t *, obs_property_t *property, 
 	data->display_mode = obs_data_get_string(settings, "display_mode");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
 	data->max_endpoint_delay_ms = (int)obs_data_get_int(settings, "max_endpoint_delay_ms");
+	data->enable_diarization = obs_data_get_bool(settings, "enable_diarization");
 	obs_data_release(settings);
 
 	if (data->captioning) {
@@ -769,6 +790,10 @@ static obs_properties_t *soniox_caption_get_properties(void *private_data)
 	obs_properties_add_int_slider(props, "max_endpoint_delay_ms",
 				      "Endpoint Delay (ms)", 500, 3000, 50);
 
+	// 화자 분리 (Beta): Soniox가 token.speaker 제공, 전환 시 "S{N}:" 접두
+	obs_properties_add_bool(props, "enable_diarization",
+				"Enable Speaker Diarization (Beta)");
+
 	// ─── 텍스트 스타일 ───
 
 	// 폰트 선택 (시스템 폰트 다이얼로그)
@@ -804,6 +829,7 @@ static void soniox_caption_get_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "display_mode", "original");
 	obs_data_set_default_string(settings, "target_lang", "en");
 	obs_data_set_default_int(settings, "max_endpoint_delay_ms", 500);
+	obs_data_set_default_bool(settings, "enable_diarization", false);
 
 	// 폰트 기본값 (obs_data_t 오브젝트)
 	obs_data_t *font_obj = obs_data_create();

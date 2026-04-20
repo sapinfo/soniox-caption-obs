@@ -375,6 +375,7 @@ static void start_captioning(soniox_caption_data *data)
 			config["sample_rate"] = 16000;
 			config["num_channels"] = 1;
 			config["language_hints"] = {lang};
+			config["enable_language_identification"] = true;
 			config["enable_endpoint_detection"] = true;
 			config["max_endpoint_delay_ms"] = data->max_endpoint_delay_ms;
 

@@ -56,6 +56,7 @@ struct soniox_caption_data {
 	int font_flags{0};
 	std::string api_key;
 	std::string language{"ko"};
+	std::string secondary_lang{"none"};
 	std::string display_mode{"original"}; // "original", "translation", or "both"
 	std::string target_lang{"en"};
 	int max_endpoint_delay_ms{500}; // Soniox: 500~3000 (default 500 = faster finalize)
@@ -378,7 +379,11 @@ static void start_captioning(soniox_caption_data *data)
 			config["audio_format"] = "pcm_s16le";
 			config["sample_rate"] = 16000;
 			config["num_channels"] = 1;
-			config["language_hints"] = {lang};
+			if (data->secondary_lang != "none" && data->secondary_lang != lang) {
+				config["language_hints"] = {lang, data->secondary_lang};
+			} else {
+				config["language_hints"] = {lang};
+			}
 			config["enable_language_identification"] = true;
 			config["enable_endpoint_detection"] = true;
 			config["max_endpoint_delay_ms"] = data->max_endpoint_delay_ms;
@@ -517,6 +522,7 @@ static void hotkey_toggle_caption(void *private_data, obs_hotkey_id, obs_hotkey_
 	obs_data_t *settings = obs_source_get_settings(data->source);
 	data->api_key = obs_data_get_string(settings, "api_key");
 	data->language = obs_data_get_string(settings, "language");
+	data->secondary_lang = obs_data_get_string(settings, "secondary_lang");
 	data->audio_source_name = obs_data_get_string(settings, "audio_source");
 	data->display_mode = obs_data_get_string(settings, "display_mode");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
@@ -608,6 +614,7 @@ static void soniox_caption_update(void *private_data, obs_data_t *settings)
 
 	data->api_key = obs_data_get_string(settings, "api_key");
 	data->language = obs_data_get_string(settings, "language");
+	data->secondary_lang = obs_data_get_string(settings, "secondary_lang");
 	data->audio_source_name = obs_data_get_string(settings, "audio_source");
 	data->display_mode = obs_data_get_string(settings, "display_mode");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
@@ -658,6 +665,7 @@ static bool on_start_stop_clicked(obs_properties_t *, obs_property_t *property, 
 	obs_data_t *settings = obs_source_get_settings(data->source);
 	data->api_key = obs_data_get_string(settings, "api_key");
 	data->language = obs_data_get_string(settings, "language");
+	data->secondary_lang = obs_data_get_string(settings, "secondary_lang");
 	data->audio_source_name = obs_data_get_string(settings, "audio_source");
 	data->display_mode = obs_data_get_string(settings, "display_mode");
 	data->target_lang = obs_data_get_string(settings, "target_lang");
@@ -714,6 +722,18 @@ static obs_properties_t *soniox_caption_get_properties(void *private_data)
 	obs_property_list_add_string(lang, "Spanish", "es");
 	obs_property_list_add_string(lang, "French", "fr");
 	obs_property_list_add_string(lang, "German", "de");
+
+	// 보조 언어 힌트 (code-switching 지원: 한+영, 한+일 등)
+	obs_property_t *lang2 = obs_properties_add_list(props, "secondary_lang",
+		"Secondary Language Hint", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(lang2, "(None)", "none");
+	obs_property_list_add_string(lang2, "Korean", "ko");
+	obs_property_list_add_string(lang2, "English", "en");
+	obs_property_list_add_string(lang2, "Japanese", "ja");
+	obs_property_list_add_string(lang2, "Chinese", "zh");
+	obs_property_list_add_string(lang2, "Spanish", "es");
+	obs_property_list_add_string(lang2, "French", "fr");
+	obs_property_list_add_string(lang2, "German", "de");
 
 	// 표시 모드 (원문/번역 토글)
 	obs_property_t *mode = obs_properties_add_list(props, "display_mode", "Display Mode",
@@ -779,6 +799,7 @@ static void soniox_caption_get_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_string(settings, "api_key", "");
 	obs_data_set_default_string(settings, "language", "ko");
+	obs_data_set_default_string(settings, "secondary_lang", "none");
 	obs_data_set_default_string(settings, "audio_source", "");
 	obs_data_set_default_string(settings, "display_mode", "original");
 	obs_data_set_default_string(settings, "target_lang", "en");

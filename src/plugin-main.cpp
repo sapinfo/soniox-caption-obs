@@ -17,6 +17,7 @@
 #include <mutex>
 #include <vector>
 #include <chrono>
+#include <sstream>
 
 using json = nlohmann::json;
 
@@ -62,6 +63,8 @@ struct soniox_caption_data {
 	std::string target_lang{"en"};
 	int max_endpoint_delay_ms{500}; // Soniox: 500~3000 (default 500 = faster finalize)
 	bool enable_diarization{false};
+	std::string context_text;
+	std::string context_general_raw; // "key=value" lines, parsed to JSON array at send time
 
 	// 번역 committed protection (확정 텍스트 1.5초 유지)
 	std::chrono::steady_clock::time_point committed_protect_until;
@@ -74,6 +77,36 @@ struct soniox_caption_data {
 	int custom_width{0};
 	bool word_wrap{false};
 };
+
+// ─── Context "general" 파싱: "key=value" 라인 → JSON 배열 ───
+static json parse_general(const std::string &raw)
+{
+	json arr = json::array();
+	std::istringstream iss(raw);
+	std::string line;
+	while (std::getline(iss, line)) {
+		// \r 제거 (CRLF 대응) 및 trim
+		while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
+			line.pop_back();
+		while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+			line.erase(line.begin());
+		if (line.empty())
+			continue;
+		auto eq = line.find('=');
+		if (eq == std::string::npos)
+			continue;
+		std::string k = line.substr(0, eq);
+		std::string v = line.substr(eq + 1);
+		while (!k.empty() && k.back() == ' ')
+			k.pop_back();
+		while (!v.empty() && v.front() == ' ')
+			v.erase(v.begin());
+		if (k.empty())
+			continue;
+		arr.push_back({{"key", k}, {"value", v}});
+	}
+	return arr;
+}
 
 // ─── 텍스트 표시 업데이트 ───
 static void update_source_text(soniox_caption_data *data, obs_source_t *src, const char *text)
@@ -407,6 +440,21 @@ static void start_captioning(soniox_caption_data *data)
 				config["enable_speaker_diarization"] = true;
 			}
 
+			// Context: 배경 서술(text) + 세션 메타데이터(general key=value pairs)
+			json ctx;
+			if (!data->context_text.empty()) {
+				ctx["text"] = data->context_text;
+			}
+			if (!data->context_general_raw.empty()) {
+				json general = parse_general(data->context_general_raw);
+				if (!general.empty()) {
+					ctx["general"] = general;
+				}
+			}
+			if (!ctx.empty()) {
+				config["context"] = ctx;
+			}
+
 			// 번역 모드 또는 both 모드일 때 Soniox 내장 번역 추가
 			if (data->display_mode != "original" && !data->target_lang.empty()) {
 				config["translation"] = {
@@ -546,6 +594,8 @@ static void hotkey_toggle_caption(void *private_data, obs_hotkey_id, obs_hotkey_
 	data->target_lang = obs_data_get_string(settings, "target_lang");
 	data->max_endpoint_delay_ms = (int)obs_data_get_int(settings, "max_endpoint_delay_ms");
 	data->enable_diarization = obs_data_get_bool(settings, "enable_diarization");
+	data->context_text = obs_data_get_string(settings, "context_text");
+	data->context_general_raw = obs_data_get_string(settings, "context_general_raw");
 	obs_data_release(settings);
 
 	if (data->captioning)
@@ -639,6 +689,8 @@ static void soniox_caption_update(void *private_data, obs_data_t *settings)
 	data->target_lang = obs_data_get_string(settings, "target_lang");
 	data->max_endpoint_delay_ms = (int)obs_data_get_int(settings, "max_endpoint_delay_ms");
 	data->enable_diarization = obs_data_get_bool(settings, "enable_diarization");
+	data->context_text = obs_data_get_string(settings, "context_text");
+	data->context_general_raw = obs_data_get_string(settings, "context_general_raw");
 
 	// 텍스트 스타일
 	data->color1 = (uint32_t)obs_data_get_int(settings, "color1");
@@ -691,6 +743,8 @@ static bool on_start_stop_clicked(obs_properties_t *, obs_property_t *property, 
 	data->target_lang = obs_data_get_string(settings, "target_lang");
 	data->max_endpoint_delay_ms = (int)obs_data_get_int(settings, "max_endpoint_delay_ms");
 	data->enable_diarization = obs_data_get_bool(settings, "enable_diarization");
+	data->context_text = obs_data_get_string(settings, "context_text");
+	data->context_general_raw = obs_data_get_string(settings, "context_general_raw");
 	obs_data_release(settings);
 
 	if (data->captioning) {
@@ -794,6 +848,14 @@ static obs_properties_t *soniox_caption_get_properties(void *private_data)
 	obs_properties_add_bool(props, "enable_diarization",
 				"Enable Speaker Diarization (Beta)");
 
+	// Context: 도메인 정확도 향상 (Soniox에 배경 힌트 전달)
+	obs_properties_add_text(props, "context_text",
+				"Context Text (background narrative)",
+				OBS_TEXT_MULTILINE);
+	obs_properties_add_text(props, "context_general_raw",
+				"Context Metadata (one 'key=value' per line)",
+				OBS_TEXT_MULTILINE);
+
 	// ─── 텍스트 스타일 ───
 
 	// 폰트 선택 (시스템 폰트 다이얼로그)
@@ -830,6 +892,8 @@ static void soniox_caption_get_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "target_lang", "en");
 	obs_data_set_default_int(settings, "max_endpoint_delay_ms", 500);
 	obs_data_set_default_bool(settings, "enable_diarization", false);
+	obs_data_set_default_string(settings, "context_text", "");
+	obs_data_set_default_string(settings, "context_general_raw", "");
 
 	// 폰트 기본값 (obs_data_t 오브젝트)
 	obs_data_t *font_obj = obs_data_create();

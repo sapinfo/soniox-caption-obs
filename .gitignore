@@ -9,6 +9,7 @@
 !/src
 !/docs
 !/docs/images
+!/tools
 !.clang-format
 !.gersemirc
 !.gitignore

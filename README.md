@@ -66,12 +66,22 @@ Soniox API를 사용한 OBS Studio **실시간 자막 + 번역** 플러그인입
 <details>
 <summary><b>Windows</b></summary>
 
-1. `soniox-caption-obs-x.x.x-windows-x64.zip` 다운로드 후 압축 해제
-2. 내용물을 아래 경로로 복사:
+1. OBS Studio 종료
+2. `soniox-caption-obs-x.x.x-windows-x64.zip` 다운로드 후 압축 해제
+3. 압축을 풀면 나오는 `soniox-caption-obs` 폴더를 통째로 아래 경로에 복사 (폴더가 없으면 생성):
    ```
-   %APPDATA%\obs-studio\plugins\soniox-caption-obs\
+   C:\ProgramData\obs-studio\plugins\
    ```
-3. OBS Studio 재시작
+   최종 구조:
+   ```
+   C:\ProgramData\obs-studio\plugins\soniox-caption-obs\bin\64bit\soniox-caption-obs.dll
+   C:\ProgramData\obs-studio\plugins\soniox-caption-obs\data\locale\en-US.ini
+   ```
+   > `ProgramData`는 숨김 폴더입니다. 탐색기 주소창에 `C:\ProgramData` 를 직접 입력하세요.
+4. OBS Studio 실행 → 소스 **+** 목록에 **Soniox Captions** 가 보이면 설치 완료
+5. 추가 런타임(OpenSSL 등) 설치는 필요 없습니다 (OBS 31 이상, OBS 33.0에서 검증)
+
+**제거:** `C:\ProgramData\obs-studio\plugins\soniox-caption-obs` 폴더 삭제
 </details>
 
 <details>
@@ -91,7 +101,8 @@ sudo dpkg -i soniox-caption-obs-x.x.x-x86_64-linux-gnu.deb
    - **Soniox API Key** 입력
    - **Audio Source** 에서 마이크 선택 (예: Mic/Aux)
    - **Language** 선택
-   - (선택) **Enable Translation** 체크 후 번역 대상 언어 선택
+   - (선택) **Display Mode** 를 Translation 또는 Both로 바꾸고 **Translate To** 선택
+   - (선택) **Caption Hold After Speech** — 말이 끝난 뒤 자막을 유지할 시간 (기본 4초, 0 = 다음 발화까지 유지)
 3. **Start Caption** 클릭
 4. 마이크에 말하면 실시간 자막이 화면에 표시됩니다!
 

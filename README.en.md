@@ -66,12 +66,22 @@ Sign up at [soniox.com](https://soniox.com), register a payment method, add cred
 <details>
 <summary><b>Windows</b></summary>
 
-1. Download and unzip `soniox-caption-obs-x.x.x-windows-x64.zip`
-2. Copy contents to:
+1. Quit OBS Studio
+2. Download and unzip `soniox-caption-obs-x.x.x-windows-x64.zip`
+3. Copy the extracted `soniox-caption-obs` folder into (create it if missing):
    ```
-   %APPDATA%\obs-studio\plugins\soniox-caption-obs\
+   C:\ProgramData\obs-studio\plugins\
    ```
-3. Restart OBS Studio
+   Resulting layout:
+   ```
+   C:\ProgramData\obs-studio\plugins\soniox-caption-obs\bin\64bit\soniox-caption-obs.dll
+   C:\ProgramData\obs-studio\plugins\soniox-caption-obs\data\locale\en-US.ini
+   ```
+   > `ProgramData` is hidden — type `C:\ProgramData` directly into the Explorer address bar.
+4. Start OBS Studio — **Soniox Captions** should appear in the Sources **+** list
+5. No extra runtime (OpenSSL etc.) is required (OBS 31+, verified on OBS 33.0)
+
+**Uninstall:** delete `C:\ProgramData\obs-studio\plugins\soniox-caption-obs`
 </details>
 
 <details>
@@ -91,7 +101,8 @@ Or manually copy to `~/.config/obs-studio/plugins/soniox-caption-obs/`
    - Enter your **Soniox API Key**
    - Select **Audio Source** (e.g., Mic/Aux)
    - Choose **Language**
-   - (Optional) Check **Enable Translation** and select target language
+   - (Optional) Set **Display Mode** to Translation or Both and pick **Translate To**
+   - (Optional) **Caption Hold After Speech** — how long captions stay after speech ends (default 4s, 0 = until next utterance)
 3. Click **Start Caption**
 4. Speak into your microphone — captions appear in real-time!
 

@@ -1,12 +1,8 @@
 name: Pull Request
 run-name: ${{ github.event.pull_request.title }} pull request run 🚀
+# 자동 실행 비활성화 — PR에서 빌드하지 않음. 필요 시 Actions 탭에서 수동 실행.
 on:
   workflow_dispatch:
-  pull_request:
-    paths-ignore:
-      - '**.md'
-    branches: [master, main]
-    types: [ opened, synchronize, reopened ]
 permissions:
   contents: read
 concurrency:

@@ -1,9 +1,8 @@
 name: Push
 run-name: ${{ github.ref_name }} push run 🚀
+# 자동 실행 비활성화 — 태그 push로 빌드하지 않음. 필요 시 Actions 탭에서 태그를 선택해 수동 실행.
 on:
-  push:
-    tags:
-      - '*'
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:

@@ -31,12 +31,18 @@ cmake --build --preset windows-x64-local
 # Install: copy build_x64/RelWithDebInfo/soniox-caption-obs.dll to
 #   C:\ProgramData\obs-studio\plugins\soniox-caption-obs\bin\64bit\  (OBS must be closed)
 
-# Release (tag triggers CI build for all platforms)
-git tag x.x.x && git push origin x.x.x
+# Release (manual — CI does not run automatically)
+# 1. bump version in buildspec.json, build locally on each platform
+# 2. Windows zip: cmake --install build_x64 --prefix <stage> --config RelWithDebInfo,
+#    drop the .pdb, zip <stage>/soniox-caption-obs with forward-slash paths (Python zipfile —
+#    PS 5.1 Compress-Archive/.NET Framework write backslash entry names)
+#    -> soniox-caption-obs-x.x.x-windows-x64.zip
+# 3. git tag x.x.x && git push origin x.x.x
+# 4. gh release create x.x.x <zip> ... ; add macOS assets later with gh release upload
 ```
 
 ## CI/CD
-- **Trigger**: Tag push only (`on.push.tags`). Main branch push does NOT trigger Actions.
+- **Trigger**: Manual only (`workflow_dispatch`). Automatic tag/PR builds were disabled by the owner (not useful) — don't re-enable without asking.
 - **Builds**: macOS arm64 + x86_64 (cross-compile), Windows x64, Ubuntu x86_64
 - **Release**: Automatic draft release on valid semver tag (e.g., `0.1.2`)
 - **Codesigning**: macOS arm64 only (requires Apple Developer secrets)

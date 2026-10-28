@@ -8,7 +8,7 @@ Single-file C++ plugin (`src/plugin-main.cpp`) with WebSocket streaming.
 - **Language**: C++17
 - **Build**: CMake 3.28+ / Xcode (macOS) / VS 2022 (Windows) / Ninja (Linux)
 - **OBS SDK**: 31.1.1 (via buildspec.json auto-download)
-- **Dependencies**: IXWebSocket v11.4.5 (WebSocket), nlohmann/json v3.11.3, TLS: OpenSSL 3.x (macOS/Linux) / static mbedTLS from obs-deps (Windows)
+- **Dependencies**: IXWebSocket v11.4.5 (WebSocket), nlohmann/json v3.11.3, TLS: mbedTLS from obs-deps (Windows static / macOS `@rpath` dylib shipped inside OBS.app) / distro OpenSSL (Linux)
 - **Platforms**: macOS (arm64 + x86_64), Windows (x64), Ubuntu (x86_64)
 
 ## Build Commands
@@ -52,8 +52,6 @@ cmake --build --preset windows-x64-local
 - Uses OBS built-in text source (`text_ft2_source_v2` / `text_gdiplus`) for rendering
 - Button toggle: use `obs_property_set_description()` in callback (RefreshProperties doesn't re-call get_properties)
 - Audio: OBS float32 48kHz -> int16 16kHz downsampled -> WebSocket binary to Soniox
-- x86_64 macOS CI: Intel Homebrew OpenSSL at `/usr/local/opt/openssl@3`
-- `CMakeLists.txt` guards `OPENSSL_ROOT_DIR` with `NOT DEFINED CACHE{}` to prevent preset override
 - Font: `obs_properties_add_font()` for system font dialog (face/style/size in one `obs_data_t` object)
 - Text style properties passed through to internal text source (`color1/2`, `outline`, `drop_shadow`, `custom_width`, `word_wrap` for ft2; `color`, `extents`, `outline` for gdiplus)
 - Endpoint delay: Soniox `max_endpoint_delay_ms` (500-3000ms, default **500** in this plugin). Lower = faster caption finalize after speech pause. Below 500ms requires manual `{"type":"finalize"}` message — Soniox does not expose silence threshold or VAD sensitivity (semantic endpointing only)
@@ -62,10 +60,12 @@ cmake --build --preset windows-x64-local
 - Soniox token order (verified): final translation tokens arrive ~10-40ms after the source finals and **before** `<end>`
 - Threading: `control_mutex` serializes start/stop/test/update/destroy (UI vs hotkey thread). WS callbacks read only the `session` snapshot taken at start — never `settings` strings. `display_mode` is atomic for the render thread; text style behind `style_mutex`. Stop order: remove audio callback → join tick thread → stop websocket
 - Tick thread (per session, 250ms): sends `{"type":"keepalive"}` when no audio sent for 5s (Soniox closes with 408 after 20s without audio/keepalive) and clears captions after `caption_hold_ms` (default 4000) following `<end>`
-- Soniox `error_message` (e.g. 401 bad key) disables IXWebSocket auto-reconnect and keeps the error text on screen
+- Soniox `error_message` with a non-retryable code (400/401/402/403…) disables IXWebSocket auto-reconnect and keeps the error text on screen. Retryable codes per Soniox docs (408/413/429/500/503) leave auto-reconnect on — 413 = max session duration, so long streams must reconnect
+- Audio gap during speech (muted source / stopped media → no audio callbacks): Soniox can't endpoint without audio, so the tick thread sends one `{"type":"finalize"}` after 1s gap while an utterance is open. Response ends with a `<fin>` token, handled like `<end>`. Soniox warns against frequent finalize (disconnects) — keep it once per gap
 - Never call `ix::WebSocket::stop()` from its own callback (self-join → abort). Use non-blocking `close()` instead (test connection does this)
 - Windows `text_gdiplus` with extents uses `extents_cx/cy` as the exact source size (no auto height) — `extents_cy=0` renders nothing. Plugin uses a fixed 3-line box (`font_size * 1.4 * 3`)
 - Windows TLS uses obs-deps static mbedTLS (+ `bcrypt`) so the DLL depends only on OBS/system DLLs — linking OpenSSL would require shipping libssl/libcrypto DLLs
+- macOS TLS uses obs-deps mbedTLS (`@rpath/libmbedtls.dylib`, resolved from OBS.app/Contents/Frameworks). Releases ≤0.1.7 linked Homebrew `/opt/homebrew/opt/openssl@3` and could not load on Macs without it. IXWebSocket's mbedTLS `SYSTEM` CA loading is Windows-only, so the plugin exports keychain anchors (`SecTrustCopyAnchorCertificates` → `SecItemExport` PEM) and passes them as an in-memory CA (`configure_tls`)
 - Built against OBS SDK 31.1.1 (upstream obs-plugintemplate's latest); verified loading and working in OBS 33.0.0
 - Soniox translation tokens arrive in sentence-sized chunks (not word-by-word like STT). Client-side typing effects don't work well — committed protection is the better UX approach
 - Test connection: verifies WebSocket Open only, then immediately closes — no config/auth payload sent (connection success = server reachable). Uses a separate `test_websocket`; ignored while captioning

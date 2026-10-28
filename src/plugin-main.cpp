@@ -17,7 +17,12 @@
 #include <plugin-support.h>
 
 #include <ixwebsocket/IXWebSocket.h>
+#include <ixwebsocket/IXSocketTLSOptions.h>
 #include <nlohmann/json.hpp>
+
+#ifdef __APPLE__
+#include <Security/Security.h>
+#endif
 
 #include <string>
 #include <memory>
@@ -38,6 +43,9 @@ static const char *SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
 // 오디오가 이 시간 이상 전송되지 않으면 keepalive 전송 (Soniox는 무음/무전송 시 연결을 닫음)
 static constexpr int64_t KEEPALIVE_INTERVAL_MS = 5000;
+// 발화 도중 오디오가 이 시간 이상 끊기면 (음소거/소스 정지) 수동 finalize — Soniox는 오디오가 없으면
+// 끝점을 감지하지 못해 미완성 자막이 화면에 남는다
+static constexpr int64_t AUDIO_GAP_FINALIZE_MS = 1000;
 static constexpr int TICK_INTERVAL_MS = 250;
 
 enum display_mode_t { DISPLAY_ORIGINAL = 0, DISPLAY_TRANSLATION = 1, DISPLAY_BOTH = 2 };
@@ -49,6 +57,13 @@ static display_mode_t parse_display_mode(const char *s)
 	if (s && strcmp(s, "both") == 0)
 		return DISPLAY_BOTH;
 	return DISPLAY_ORIGINAL;
+}
+
+// Soniox 문서상 재시도 가능한 에러 (408 timeout, 413 세션 최대 길이, 429 rate limit, 5xx)
+// — 나머지(400/401/402/403 등)는 재연결해도 같은 결과
+static bool is_retryable_soniox_error(int code)
+{
+	return code == 408 || code == 413 || code == 429 || code == 500 || code == 503;
 }
 
 // 세션 시작 시점의 설정 스냅샷 — WebSocket 스레드는 이 복사본만 읽는다
@@ -108,6 +123,7 @@ struct soniox_caption_data {
 	// WebSocket
 	std::unique_ptr<ix::WebSocket> websocket;      // 캡셔닝용
 	std::unique_ptr<ix::WebSocket> test_websocket; // 연결 테스트용 (캡셔닝과 분리)
+	std::atomic<bool> test_running{false};          // 테스트 결과 문구를 update()가 덮어쓰지 않도록
 	std::atomic<bool> connected{false};
 	std::atomic<bool> captioning{false};
 	std::atomic<bool> stopping{false};    // stop 중 Close 콜백 무시용
@@ -124,7 +140,9 @@ struct soniox_caption_data {
 	std::mutex tick_mutex;
 	std::condition_variable tick_cv;
 	bool tick_stop{false};
-	std::atomic<int64_t> last_send_ms{0};
+	std::atomic<int64_t> last_send_ms{0};  // 오디오 + keepalive
+	std::atomic<int64_t> last_audio_ms{0}; // 오디오만
+	std::atomic<bool> finalize_sent{false}; // 오디오 끊김당 finalize 1회
 
 	// 자막 상태 (text_mutex 보호)
 	std::mutex text_mutex;
@@ -132,11 +150,13 @@ struct soniox_caption_data {
 	std::string final_trans_buffer; // 번역 확정 텍스트
 	int turn_count{0};
 	int last_speaker{-1}; // 화자 전환 감지용 (발화 경계에서 -1로 리셋)
+	bool utterance_open{false}; // 원문 토큰 수신 후 <end>/<fin> 전까지 true
 
 	// 번역 committed protection (확정 텍스트 1.5초 유지)
 	std::chrono::steady_clock::time_point committed_protect_until;
 	// protection 중 억제된 번역 — 만료 시 tick 스레드가 표시 (짧은 발화의 번역 유실 방지)
 	std::string pending_trans;
+	bool pending_trans_committed{false}; // 확정 번역이면 표시 후 다시 protection
 	// 발화 종료 후 자막 지우기 예정 시각 (max = 예정 없음)
 	std::chrono::steady_clock::time_point clear_deadline{std::chrono::steady_clock::time_point::max()};
 };
@@ -156,6 +176,46 @@ static std::string trim(std::string s)
 		return "";
 	size_t e = s.find_last_not_of(ws);
 	return s.substr(b, e - b + 1);
+}
+
+#ifdef __APPLE__
+// IXWebSocket의 mbedTLS 백엔드는 macOS 시스템 인증서를 읽지 못함 ("SYSTEM" = Windows 전용)
+// → 키체인의 시스템 루트 인증서를 PEM 번들로 만들어 메모리 CA로 전달 (최초 1회 생성)
+static const std::string &macos_root_ca_pem()
+{
+	static const std::string pem = [] {
+		std::string out;
+		CFArrayRef anchors = nullptr;
+		if (SecTrustCopyAnchorCertificates(&anchors) != errSecSuccess || !anchors)
+			return out;
+		CFDataRef data = nullptr;
+		if (SecItemExport(anchors, kSecFormatPEMSequence, 0, nullptr, &data) == errSecSuccess && data) {
+			out.assign(reinterpret_cast<const char *>(CFDataGetBytePtr(data)),
+				   (size_t)CFDataGetLength(data));
+			CFRelease(data);
+		}
+		obs_log(LOG_INFO, "Loaded %ld root certificates from keychain", (long)CFArrayGetCount(anchors));
+		CFRelease(anchors);
+		return out;
+	}();
+	return pem;
+}
+#endif
+
+static void configure_tls(ix::WebSocket *ws)
+{
+#ifdef __APPLE__
+	const std::string &pem = macos_root_ca_pem();
+	if (pem.empty()) {
+		obs_log(LOG_WARNING, "Could not load keychain root certificates — TLS will fail");
+		return;
+	}
+	ix::SocketTLSOptions tls;
+	tls.caFile = pem; // "-----BEGIN CERTIFICATE-----" 포함 → IXWebSocket이 메모리 CA로 인식
+	ws->setTLSOptions(tls);
+#else
+	(void)ws; // Windows: mbedTLS가 시스템 저장소 사용, Linux: OpenSSL 기본 경로
+#endif
 }
 
 // ─── Context "general" 파싱: "key=value" 라인 → JSON 배열 ───
@@ -270,7 +330,10 @@ static void audio_capture_callback(void *param, obs_source_t *, const struct aud
 
 	data->websocket->sendBinary(std::string(reinterpret_cast<const char *>(output[0]),
 						out_frames * sizeof(int16_t)));
-	data->last_send_ms = steady_now_ms();
+	int64_t now = steady_now_ms();
+	data->last_send_ms = now;
+	data->last_audio_ms = now;
+	data->finalize_sent = false;
 }
 
 // ─── Soniox 토큰 파싱 (WebSocket 스레드) ───
@@ -283,8 +346,13 @@ static void handle_soniox_message(soniox_caption_data *data, ix::WebSocket *ws, 
 
 		if (resp.contains("error_message")) {
 			std::string err = resp["error_message"];
-			obs_log(LOG_ERROR, "Soniox error (code=%d): %s", resp.value("error_code", 0),
-				err.c_str());
+			int code = resp.value("error_code", 0);
+			obs_log(LOG_ERROR, "Soniox error (code=%d): %s", code, err.c_str());
+			if (is_retryable_soniox_error(code)) {
+				// 서버가 연결을 닫으면 자동 재연결이 새 세션을 연다
+				update_text_display(data, ("Reconnecting: " + err).c_str());
+				return;
+			}
 			// API 키 오류 등은 재시도해도 같은 결과 → 재연결 중단, 에러 문구 유지
 			data->fatal_error = true;
 			ws->disableAutomaticReconnection();
@@ -309,8 +377,8 @@ static void handle_soniox_message(soniox_caption_data *data, ix::WebSocket *ws, 
 		for (const auto &token : tokens) {
 			std::string text = token.value("text", "");
 
-			// <end> = 발화 완료
-			if (text == "<end>") {
+			// <end> = 발화 완료, <fin> = 수동 finalize 완료 (둘 다 발화 경계로 처리)
+			if (text == "<end>" || text == "<fin>") {
 				data->final_buffer += new_final;
 				data->final_trans_buffer += new_final_trans;
 				new_final.clear();
@@ -330,9 +398,10 @@ static void handle_soniox_message(soniox_caption_data *data, ix::WebSocket *ws, 
 				if (cfg.display_mode != DISPLAY_ORIGINAL) {
 					// protection 중에 끝난 발화: 번역이 화면에 못 나갔으면 만료 후 표시되도록 보관
 					std::string trans = trim(data->final_trans_buffer);
-					if (now < data->committed_protect_until && !trans.empty())
+					if (now < data->committed_protect_until && !trans.empty()) {
 						data->pending_trans = trans;
-					else
+						data->pending_trans_committed = true;
+					} else
 						data->committed_protect_until = now + std::chrono::milliseconds(1500);
 				}
 				// 확정된 줄은 화면에 남겨두고 hold 시간 후 지움 (다음 발화가 오면 즉시 교체)
@@ -342,6 +411,7 @@ static void handle_soniox_message(soniox_caption_data *data, ix::WebSocket *ws, 
 				data->final_buffer.clear();
 				data->final_trans_buffer.clear();
 				data->last_speaker = -1; // 발화 경계에서 화자 리셋
+				data->utterance_open = false;
 				got_end = true;
 				continue;
 			}
@@ -371,6 +441,7 @@ static void handle_soniox_message(soniox_caption_data *data, ix::WebSocket *ws, 
 					new_final += prefix + text;
 				else
 					non_final += prefix + text;
+				data->utterance_open = true;
 			}
 		}
 
@@ -390,10 +461,12 @@ static void handle_soniox_message(soniox_caption_data *data, ix::WebSocket *ws, 
 		}
 
 		if (cfg.display_mode != DISPLAY_ORIGINAL && !trans.empty()) {
-			if (trans_protected)
+			if (trans_protected) {
 				data->pending_trans = trans;
-			else
+				data->pending_trans_committed = false; // 진행 중 발화의 부분 번역
+			} else {
 				data->pending_trans.clear();
+			}
 		}
 
 		if (cfg.display_mode == DISPLAY_BOTH) {
@@ -432,6 +505,15 @@ static void tick_loop(soniox_caption_data *data)
 		std::lock_guard<std::mutex> tl(data->text_mutex);
 		auto now = std::chrono::steady_clock::now();
 
+		// 발화 도중 오디오 끊김 → 수동 finalize (응답의 <fin>이 발화 경계 처리)
+		if (data->connected && data->utterance_open && !data->finalize_sent &&
+		    steady_now_ms() - data->last_audio_ms >= AUDIO_GAP_FINALIZE_MS) {
+			data->websocket->sendText(R"({"type":"finalize"})");
+			data->last_send_ms = steady_now_ms();
+			data->finalize_sent = true;
+			obs_log(LOG_INFO, "Audio gap during speech — sent finalize");
+		}
+
 		// protection 만료 → 억제됐던 번역 표시
 		if (!data->pending_trans.empty() && now >= data->committed_protect_until) {
 			if (data->session.display_mode == DISPLAY_BOTH)
@@ -439,7 +521,9 @@ static void tick_loop(soniox_caption_data *data)
 			else
 				update_text_display(data, data->pending_trans.c_str());
 			data->pending_trans.clear();
-			data->committed_protect_until = now + std::chrono::milliseconds(1500);
+			// 부분 번역은 다시 잠그지 않음 — 진행 중 발화의 번역이 1.5초 단위로 끊겨 갱신되지 않도록
+			if (data->pending_trans_committed)
+				data->committed_protect_until = now + std::chrono::milliseconds(1500);
 			if (data->clear_deadline != std::chrono::steady_clock::time_point::max())
 				data->clear_deadline = now + std::chrono::milliseconds(data->session.caption_hold_ms);
 		}
@@ -469,6 +553,7 @@ static void stop_test_connection(soniox_caption_data *data)
 {
 	// 소멸자가 stop()으로 run 스레드를 join — 콜백 실행 중이면 끝날 때까지 대기
 	data->test_websocket.reset();
+	data->test_running = false;
 }
 
 // ─── 캡셔닝 중지 (control_mutex 보유 상태에서 호출) ───
@@ -616,15 +701,19 @@ static void start_captioning(soniox_caption_data *data)
 		data->final_trans_buffer.clear();
 		data->turn_count = 0;
 		data->last_speaker = -1;
+		data->utterance_open = false;
 		data->clear_deadline = std::chrono::steady_clock::time_point::max();
 		data->committed_protect_until = {};
 		data->pending_trans.clear();
 	}
+	data->last_audio_ms = steady_now_ms();
+	data->finalize_sent = false;
 
 	// 1. WebSocket 먼저 설정
 	data->websocket = std::make_unique<ix::WebSocket>();
 	ix::WebSocket *ws = data->websocket.get();
 	ws->setUrl(SONIOX_URL);
+	configure_tls(ws);
 
 	// 자동 재연결: 끊어지면 3초 후 재시도 (Soniox error_message 수신 시 중단)
 	ws->enableAutomaticReconnection();
@@ -641,6 +730,7 @@ static void start_captioning(soniox_caption_data *data)
 				data->final_buffer.clear();
 				data->final_trans_buffer.clear();
 				data->last_speaker = -1;
+				data->utterance_open = false;
 			}
 
 			std::string cfg = build_config_json(data->session);
@@ -711,9 +801,11 @@ static void test_connection(soniox_caption_data *data)
 
 	update_text_display(data, "Testing connection...");
 
+	data->test_running = true;
 	data->test_websocket = std::make_unique<ix::WebSocket>();
 	ix::WebSocket *ws = data->test_websocket.get();
 	ws->setUrl(SONIOX_URL);
+	configure_tls(ws);
 	ws->disableAutomaticReconnection();
 
 	ws->setOnMessageCallback([data, ws](const ix::WebSocketMessagePtr &msg) {
@@ -727,9 +819,11 @@ static void test_connection(soniox_caption_data *data)
 			break;
 		case ix::WebSocketMessageType::Error:
 			update_text_display(data, ("Error: " + msg->errorInfo.reason).c_str());
+			data->test_running = false;
 			break;
 		case ix::WebSocketMessageType::Close:
 			update_text_display(data, "Test: Disconnected");
+			data->test_running = false;
 			break;
 		default:
 			break;
@@ -791,6 +885,8 @@ static void toggle_captioning(soniox_caption_data *data)
 	reload_settings(data);
 	if (data->captioning) {
 		stop_captioning(data);
+		// 캡셔닝 중 바뀐 표시 모드를 레이아웃에 반영 (세션 중에는 세션 모드를 유지했음)
+		data->display_mode = data->settings.display_mode;
 	} else {
 		start_captioning(data);
 		if (data->captioning)
@@ -874,7 +970,7 @@ static void soniox_caption_update(void *private_data, obs_data_t *settings)
 
 	load_settings_into_data(data, settings);
 
-	if (!data->captioning && !data->test_websocket) {
+	if (!data->captioning && !data->test_running) {
 		if (!data->settings.api_key.empty())
 			update_text_display(data, "Soniox Captions Ready!");
 		else

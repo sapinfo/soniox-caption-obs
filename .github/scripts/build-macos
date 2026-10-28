@@ -95,17 +95,6 @@ build() {
   read -r product_name product_version <<< \
     "$(jq -r '. | {name, version} | join(" ")' ${buildspec_file})"
 
-  # x86_64 빌드 시 Intel Homebrew로 OpenSSL 설치
-  if [[ ${target_arch} == 'x86_64' ]] {
-    log_group "Installing x86_64 OpenSSL via Intel Homebrew..."
-    if [[ ! -f /usr/local/bin/brew ]] {
-      arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    }
-    arch -x86_64 /usr/local/bin/brew install openssl@3
-    export OPENSSL_ROOT_DIR="/usr/local/opt/openssl@3"
-    log_info "x86_64 OpenSSL installed at ${OPENSSL_ROOT_DIR}"
-  }
-
   pushd ${project_root}
 
   local -a cmake_args=()

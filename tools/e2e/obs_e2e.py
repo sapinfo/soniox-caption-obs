@@ -165,8 +165,17 @@ def main():
 
     # replay audio to confirm the session is still usable after idle
     cl.trigger_media_input_action(AUDIO, "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART")
-    time.sleep(8)
+    time.sleep(3)
     log(f"post-idle shot {sh.shot('postidle')}")
+
+    # ── Phase 2b: mute mid-utterance — plugin must finalize instead of leaving a stuck partial ──
+    cl.set_input_mute(AUDIO, True)
+    log("muted audio mid-utterance (expect 'sent finalize' + a Turn line in OBS log)")
+    time.sleep(2)
+    log(f"muted shot {sh.shot('muted')}")
+    time.sleep(5)
+    log(f"after hold shot {sh.shot('muted_cleared')} (captions should be cleared)")
+    cl.set_input_mute(AUDIO, False)
     press(cl, "start_stop")  # stop
     time.sleep(1)
     log(f"stopped; shot {sh.shot('stopped')}")
